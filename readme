@@ -1,0 +1,224 @@
+# Transformer Models Comparison for Token Classification
+
+A rigorous statistical comparison of three state-of-the-art transformer models on token classification task using 8× NVIDIA B200 GPUs.
+
+##  Project Objective
+
+Compare the performance of three transformer architectures spanning 5 years of NLP evolution:
+- **RoBERTa-base** (2019) - Robustly Optimized BERT
+- **DeBERTa-v3-large** (2021) - Decoding-enhanced BERT with Disentangled Attention
+- **ModernBERT-large** (2024) - Modern efficient BERT architecture
+
+## Dataset
+
+**CR_ECSS Dataset** - Token classification for technical document analysis
+- **Task**: Named Entity Recognition (NER) / Token Classification
+- **Labels**: 19 classes (O, Cleanliness, Materials/EEEs, Nonconformity, System engineering, Quality control, Measurement, Parameter, GN&C, Project Scope, OBDH, Power, Structure & Mechanism, Thermal, Telecom., Space Environment, Project Organisation/Documentation, Safety/Risk Control, Propulsion)
+- **Sentences**: 875 total
+- **Train/Val Split**: 78.7% / 21.3% (fixed seed=42)
+
+
+**Training Configuration:**
+```bash
+# RoBERTa-base
+accelerate launch --multi_gpu --num_processes 8 training_new.py \
+  --preset roberta-base \
+  --train-epochs 5 \
+  --per-device-train-batch-size 8 \
+  --gradient-accumulation-steps 1 \
+  --max-length 512 \
+  --early-stop-patience 0 \
+  --save-total-limit 3 \
+  --overwrite-run-dir
+
+# DeBERTa-v3-large  
+accelerate launch --multi_gpu --num_processes 8 training_new.py \
+  --preset deberta-v3-large \
+  --train-epochs 5 \
+  --per-device-train-batch-size 4 \
+  --gradient-accumulation-steps 1 \
+  --max-length 512 \
+  --early-stop-patience 0 \
+  --save-total-limit 3 \
+  --overwrite-run-dir
+
+# ModernBERT-large
+accelerate launch --multi_gpu --num_processes 8 training_new.py \
+  --preset modernbert-large \
+  --train-epochs 5 \
+  --per-device-train-batch-size 4 \
+  --gradient-accumulation-steps 1 \
+  --max-length 512 \
+  --early-stop-patience 0 \
+  --save-total-limit 3 \
+  --overwrite-run-dir
+```
+
+**Why different batch sizes?**
+- RoBERTa-base: Smaller model (125M params) → batch_size=8
+- DeBERTa-v3-large: Larger model (304M params) → batch_size=4
+- ModernBERT-large: Larger model (395M params) → batch_size=4
+
+**Output**: Domain-adapted checkpoints in `runs/{model_name}/best/`
+
+#### Stage 2: Task-Specific Fine-tuning (Token Classification)
+Fine-tune domain-adapted models on the specific task with multiple runs for statistical validity.
+
+**Experimental Design:**
+- **10 independent runs per model** (seeds 42-51)
+- **4 epochs per run** 
+- **Early stopping**: Monitor validation F1, stop if no improvement for 3 epochs
+- **Total experiments**: 3 models × 10 runs = 30 training runs
+
+**Fine-tuning Configuration:**
+```bash
+# Automated: Run all 30 experiments
+./run_experiments.sh
+
+# Manual: Single run example
+python fine_tune_with_summary.py \
+  --model-path runs/roberta-base/best \
+  --data-file CR_ECSS_dataset.json \
+  --epochs 4 \
+  --batch-size 8 \
+  --seed 42 \
+  --run-number 1 \
+  --output-dir results
+```
+
+**Hyperparameters:**
+- Learning rate: 3e-5 (standard for fine-tuning)
+- Weight decay: 0.01 (L2 regularization)
+- Optimizer: AdamW
+- LR scheduler: Linear warmup (0 warmup steps) + linear decay
+- Gradient clipping: 1.0
+- Batch size: 8
+- **Max sequence length: 128 tokens** (Critical - see below)
+
+##  Technical Challenges & Solutions
+
+### Challenge 1: NaN Loss with Long Sequences on B200 GPUs
+
+**Problem**: Training loss became NaN immediately (step 0) when using sequences longer than 128 tokens with RoBERTa-base on NVIDIA B200 GPUs with DataParallel and mixed precision.
+
+**Root Cause**: 
+- B200 GPUs have native bfloat16 support (no automatic float32 fallbacks)
+- RoBERTa-base (2019) wasn't designed for true bfloat16
+- Long sequences (256-512 tokens) + 8 GPUs + DataParallel + mixed precision → cumulative floating-point errors → NaN
+
+**Solution**:
+```python
+MAX_LEN = 128  # Fixed for all models for fair comparison
+```
+
+**Validation**:
+```bash
+python test_sequence_lengths.py
+# Results:
+# MAX_LEN=512 → NaN 
+# MAX_LEN=256 → NaN 
+# MAX_LEN=128 → Success 
+```
+
+**Trade-off**: Some longer sequences get truncated, but ensures stable training across all models.
+
+### Challenge 2: ModernBERT torch.compile Incompatibility
+
+**Problem**: ModernBERT crashed with `RuntimeError: Detected that you are using FX to symbolically trace a dynamo-optimized function`
+
+**Root Cause**: ModernBERT enables torch.compile by default, which conflicts with DataParallel
+
+**Solution**:
+```python
+os.environ["TORCHDYNAMO_DISABLE"] = "1"
+os.environ["TORCH_COMPILE"] = "0"
+```
+
+### Challenge 3: Mixed Precision Strategy
+
+**Configuration**:
+```python
+# RoBERTa-base: float16 (more stable on older architecture)
+amp_dtype = torch.float16
+
+# DeBERTa-v3-large & ModernBERT-large: bfloat16 (designed for it)
+amp_dtype = torch.bfloat16
+```
+
+**Why?** Different architectures have different numerical stability characteristics. We use the most stable precision for each model.
+
+
+
+### Model Sizes
+| Model | Parameters | Hidden Size | Layers | Heads |
+|-------|-----------|-------------|--------|-------|
+| RoBERTa-base | 125M | 768 | 12 | 12 |
+| DeBERTa-v3-large | 304M | 1024 | 24 | 16 |
+| ModernBERT-large | 395M | 1024 | 28 | 16 |
+
+##  Results
+
+### Summary Statistics (Best F1 Score across 10 runs)
+
+| Model | Mean F1 | Std F1 | Min F1 | Max F1 | Median F1 |
+|-------|---------|--------|--------|--------|-----------|
+| RoBERTa-base | 0.XXXX | 0.XXXX | 0.XXXX | 0.XXXX | 0.XXXX |
+| DeBERTa-v3-large | 0.XXXX | 0.XXXX | 0.XXXX | 0.XXXX | 0.XXXX |
+| ModernBERT-large | 0.XXXX | 0.XXXX | 0.XXXX | 0.XXXX | 0.XXXX |
+
+*Values in `results/summary_statistics.csv`*
+
+### Statistical Significance Tests (Paired t-test)
+
+| Comparison | Mean Diff | t-statistic | p-value | Significant (α=0.05) |
+|-----------|-----------|-------------|---------|---------------------|
+| RoBERTa vs DeBERTa | X.XXXX | X.XX | 0.XXXX | Yes/No |
+| RoBERTa vs ModernBERT | X.XXXX | X.XX | 0.XXXX | Yes/No |
+| DeBERTa vs ModernBERT | X.XXXX | X.XX | 0.XXXX | Yes/No |
+
+*Full results in `results/statistical_tests.csv`*
+
+### Visualizations
+
+All plots available in `results/`:
+- `f1_boxplot.png` - F1 score distribution (box plot)
+- `f1_barplot.png` - Mean F1 with error bars
+- `f1_violin.png` - F1 distribution (violin plot)
+- `training_time.png` - Training time comparison
+- `loss_comparison.png` - Training vs validation loss
+
+## 🚀 Reproducing Results
+
+### Prerequisites
+```bash
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # or: source new_vast/bin/activate
+
+# Install dependencies
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+pip install transformers accelerate datasets
+pip install scikit-learn pandas numpy
+pip install matplotlib seaborn scipy
+```
+
+### Step 1: Pretraining (Optional - checkpoints included)
+```bash
+# Run pretraining for all 3 models (commands shown above in Methodology section)
+# This takes ~2-3 hours total on 8× B200 GPUs
+```
+
+### Step 2: Fine-tuning Experiments
+```bash
+# Run all 30 experiments automatically (~1 hour)
+chmod +x run_experiments.sh
+./run_experiments.sh
+```
+
+### Step 3: Analysis
+```bash
+# Generate statistics and visualizations
+python analyze.py
+```
+
+
