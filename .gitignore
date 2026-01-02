@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+venv/
+new_vast/
+*.bin
+*.safetensors
+*.pth
+*.pt
+runs/*/checkpoint-*/
+*.log
+.DS_Store
+problematic_batch_*.pt
+Train_results.json
+report_*.csv

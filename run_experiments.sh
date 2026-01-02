@@ -7,7 +7,7 @@ set -e  # Exit on error
 # Configuration
 MODELS=("runs/roberta-base/best" "runs/microsoft__deberta-v3-large/best" "runs/answerdotai__ModernBERT-large/best")
 MODEL_NAMES=("roberta-base" "microsoft__deberta-v3-large" "answerdotai__ModernBERT-large")
-NUM_RUNS=10
+NUM_RUNS=30  # Changed from 10 to 30
 EPOCHS=4
 BATCH_SIZE=8
 DATA_FILE="CR_ECSS_dataset.json"

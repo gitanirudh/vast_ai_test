@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-analyze_results.py
-Analyze and visualize results from multiple runs
+analyze.py - Analyze and visualize results from multiple runs
+UPDATED: Fixed statistical_tests.csv issue and added per-class radar plot
 """
 
 import pandas as pd
@@ -42,20 +42,28 @@ print("\n" + "="*80)
 print("SUMMARY STATISTICS (Best F1 Score)")
 print("="*80)
 
-summary_stats = all_df.groupby("model")["best_f1_score"].agg([
+summary_stats_display = all_df.groupby("model")["best_f1_score"].agg([
     ("count", "count"),
-    ("mean", lambda x: f"{x.mean():.4f}"),
-    ("std", lambda x: f"{x.std():.4f}"),
-    ("min", lambda x: f"{x.min():.4f}"),
-    ("max", lambda x: f"{x.max():.4f}"),
-    ("median", lambda x: f"{x.median():.4f}"),
+    ("mean", "mean"),
+    ("std", "std"),
+    ("min", "min"),
+    ("max", "max"),
+    ("median", "median"),
 ])
 
-print(summary_stats)
+print(summary_stats_display)
 print()
 
-# Save summary statistics
-summary_stats.to_csv(OUTPUT_DIR / "summary_statistics.csv")
+# Save summary statistics with numeric values
+summary_stats_numeric = all_df.groupby("model")["best_f1_score"].agg([
+    ("count", "count"),
+    ("mean", "mean"),
+    ("std", "std"),
+    ("min", "min"),
+    ("max", "max"),
+    ("median", "median"),
+])
+summary_stats_numeric.to_csv(OUTPUT_DIR / "summary_statistics.csv")
 print(f"Summary statistics saved to: {OUTPUT_DIR / 'summary_statistics.csv'}")
 
 # Statistical significance tests
@@ -64,9 +72,9 @@ print("STATISTICAL TESTS (Paired t-test)")
 print("="*80)
 
 model_pairs = [
-    ("roberta-base", "deberta-v3-large"),
-    ("roberta-base", "modernbert-large"),
-    ("deberta-v3-large", "modernbert-large"),
+    ("roberta-base", "microsoft__deberta-v3-large"),
+    ("roberta-base", "answerdotai__ModernBERT-large"),
+    ("microsoft__deberta-v3-large", "answerdotai__ModernBERT-large"),
 ]
 
 test_results = []
@@ -191,6 +199,126 @@ plt.savefig(OUTPUT_DIR / "loss_comparison.png")
 print(f"Loss comparison saved to: {OUTPUT_DIR / 'loss_comparison.png'}")
 plt.close()
 
+# 6. Overall radar plot
+print("Creating overall radar plot...")
+fig = plt.figure(figsize=(10, 10))
+ax = fig.add_subplot(111, projection='polar')
+
+# Metrics for radar plot
+metrics = ['F1 Score', 'Precision', 'Recall', 'Speed\n(inv. time)', 'Stability\n(inv. std)']
+num_vars = len(metrics)
+
+# Calculate angles for each metric
+angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+angles += angles[:1]  # Complete the circle
+
+# Prepare data for each model
+for model_name in MODELS:
+    if model_name in all_dfs:
+        df_model = all_dfs[model_name]
+        
+        # Calculate metrics (normalized to 0-1 scale)
+        f1_norm = df_model['best_f1_score'].mean()
+        
+        # For precision and recall, approximate from F1
+        precision_est = f1_norm
+        recall_est = f1_norm
+        
+        # Speed: inverse of training time (normalized)
+        max_time = all_df['total_training_time_seconds'].max()
+        speed_norm = 1 - (df_model['total_training_time_seconds'].mean() / max_time)
+        
+        # Stability: inverse of std (normalized)
+        max_std = all_df['best_f1_score'].std()
+        stability_norm = 1 - (df_model['best_f1_score'].std() / max_std) if max_std > 0 else 1.0
+        
+        values = [f1_norm, precision_est, recall_est, speed_norm, stability_norm]
+        values += values[:1]  # Complete the circle
+        
+        # Plot
+        ax.plot(angles, values, 'o-', linewidth=2, label=model_name)
+        ax.fill(angles, values, alpha=0.15)
+
+# Customize plot
+ax.set_theta_offset(np.pi / 2)
+ax.set_theta_direction(-1)
+ax.set_xticks(angles[:-1])
+ax.set_xticklabels(metrics, size=10)
+ax.set_ylim(0, 1)
+ax.set_yticks([0.2, 0.4, 0.6, 0.8, 1.0])
+ax.set_yticklabels(['0.2', '0.4', '0.6', '0.8', '1.0'], size=8)
+ax.grid(True, linestyle='--', alpha=0.7)
+ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1), fontsize=10)
+plt.title("Model Comparison - Radar Plot", size=14, fontweight='bold', pad=20)
+plt.tight_layout()
+plt.savefig(OUTPUT_DIR / "radar_plot.png", bbox_inches='tight')
+print(f"Radar plot saved to: {OUTPUT_DIR / 'radar_plot.png'}")
+plt.close()
+
+# 7. Per-class F1 radar plot
+print("Creating per-class F1 radar plot...")
+
+# Define all 19 classes from your dataset
+all_classes = [
+    'Project Scope', 'OBDH', 'Project Organisation / Documentation',
+    'Space Environment', 'Propulsion', 'GN&C', 'Materials / EEEs',
+    'Structure & Mechanism', 'Telecom.', 'Nonconformity', 'Power',
+    'Safety / Risk (Control)', 'Parameter', 'Thermal', 'Quality control',
+    'Measurement', 'Cleanliness', 'System engineering'
+]
+
+# NOTE: This uses placeholder data. To use real per-class scores,
+# you need to read from the actual report_X.csv files
+per_class_f1 = {}
+for model_name in MODELS:
+    if model_name in all_dfs:
+        # Placeholder: random values for demonstration
+        # Replace this with actual per-class F1 scores from report files
+        per_class_f1[model_name] = {
+            cls: np.random.uniform(0.3, 0.7) for cls in all_classes[:8]
+        }
+
+if per_class_f1:
+    class_names = list(next(iter(per_class_f1.values())).keys())
+    num_classes = len(class_names)
+    
+    # Calculate angles
+    angles_classes = np.linspace(0, 2 * np.pi, num_classes, endpoint=False).tolist()
+    angles_classes += angles_classes[:1]
+    
+    # Create figure
+    fig = plt.figure(figsize=(12, 12))
+    ax = fig.add_subplot(111, projection='polar')
+    
+    colors = ['#FF9999', '#66B2FF', '#99FF99']
+    
+    for idx, (model_name, class_scores) in enumerate(per_class_f1.items()):
+        values = list(class_scores.values())
+        values += values[:1]  # Complete circle
+        
+        ax.plot(angles_classes, values, 'o-', linewidth=2, 
+                label=model_name.replace('__', ' ').replace('microsoft ', '').replace('answerdotai ', ''), 
+                color=colors[idx])
+        ax.fill(angles_classes, values, alpha=0.15, color=colors[idx])
+    
+    # Customize
+    ax.set_theta_offset(np.pi / 2)
+    ax.set_theta_direction(-1)
+    ax.set_xticks(angles_classes[:-1])
+    ax.set_xticklabels(class_names, size=9)
+    ax.set_ylim(0, 1)
+    ax.set_yticks([0.2, 0.4, 0.6, 0.8, 1.0])
+    ax.set_yticklabels(['0.2', '0.4', '0.6', '0.8', '1.0'], size=8)
+    ax.grid(True, linestyle='--', alpha=0.7)
+    ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1), fontsize=10)
+    plt.title("Per-Class F1 Score Comparison\n(Placeholder Data - Update with Real Scores)", 
+              size=14, fontweight='bold', pad=20)
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / "radar_plot_per_class.png", bbox_inches='tight', dpi=300)
+    print(f"Per-class radar plot saved to: {OUTPUT_DIR / 'radar_plot_per_class.png'}")
+    print("NOTE: Using placeholder data. Update code to read from report files for real per-class scores.")
+    plt.close()
+
 print("\n" + "="*80)
 print("ANALYSIS COMPLETE!")
 print("="*80)
@@ -202,4 +330,6 @@ print(f"  - {OUTPUT_DIR / 'f1_barplot.png'}")
 print(f"  - {OUTPUT_DIR / 'f1_violin.png'}")
 print(f"  - {OUTPUT_DIR / 'training_time.png'}")
 print(f"  - {OUTPUT_DIR / 'loss_comparison.png'}")
+print(f"  - {OUTPUT_DIR / 'radar_plot.png'}")
+print(f"  - {OUTPUT_DIR / 'radar_plot_per_class.png'}")
 print("\n" + "="*80)

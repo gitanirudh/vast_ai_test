@@ -1,4 +1,0 @@
-model,count,mean,std,min,max,median
-answerdotai__ModernBERT-large,10,0.6964,0.0121,0.6744,0.7157,0.6942
-microsoft__deberta-v3-large,10,0.7088,0.0102,0.6886,0.7228,0.7085
-roberta-base,10,0.6623,0.0090,0.6499,0.6747,0.6621
