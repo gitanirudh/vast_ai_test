@@ -1,0 +1,19 @@
+Class,RoBERTa-base,DeBERTa-v3-large,ModernBERT-large
+Cleanliness,0.6205,0.6045,0.6716
+GN&C,0.7255,0.7304,0.7173
+Materials / EEEs,0.6365,0.6803,0.6309
+Measurement,0.8865,0.8925,0.8832
+Nonconformity,0.4222,0.5674,0.5460
+OBDH,0.7093,0.7540,0.7679
+Parameter,0.4406,0.5006,0.4689
+Power,0.7282,0.7823,0.7636
+Project Organisation / Documentation,0.3972,0.5003,0.4640
+Project Scope,0.6070,0.6166,0.5806
+Propulsion,0.6053,0.6990,0.6988
+Quality control,0.7048,0.7349,0.7017
+Safety / Risk (Control),0.6296,0.7006,0.6704
+Space Environment,0.7053,0.7453,0.7290
+Structure & Mechanism,0.5157,0.5794,0.5384
+System engineering,0.6004,0.6195,0.6069
+Telecom.,0.6250,0.7251,0.7130
+Thermal,0.7103,0.7328,0.7672
