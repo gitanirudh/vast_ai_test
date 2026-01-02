@@ -201,24 +201,76 @@ pip install transformers accelerate datasets
 pip install scikit-learn pandas numpy
 pip install matplotlib seaborn scipy
 ```
+## Quick Start
 
-### Step 1: Pretraining (Optional - checkpoints included)
+### Prerequisites: Create and Activate Virtual Environment
 ```bash
-# Run pretraining for all 3 models (commands shown above in Methodology section)
-# This takes ~2-3 hours total on 8× B200 GPUs
+# Create virtual environment
+python3 -m venv new_vast
+
+# Activate virtual environment
+source new_vast/bin/activate
+
+# Install requirements
+pip install -r requirements.txt
 ```
 
+### Step 1: Pretraining (Optional - checkpoints included)
+
+If you want to retrain the models from scratch (takes ~2-3 hours on 8× B200 GPUs):
+# RoBERTa-base
+accelerate launch --multi_gpu --num_processes 8 training_new.py --preset roberta-base --train-epochs 5 --per-device-train-batch-size 8 --gradient-accumulation-steps 1 --max-length 512 --early-stop-patience 0 --save-total-limit 3 --overwrite-run-dir
+
+# DeBERTa-v3-large
+accelerate launch --multi_gpu --num_processes 8 training_new.py --preset deberta-v3-large --train-epochs 5 --per-device-train-batch-size 4 --gradient-accumulation-steps 1 --max-length 512 --early-stop-patience 0 --save-total-limit 3 --overwrite-run-dir
+
+# ModernBERT-large
+accelerate launch --multi_gpu --num_processes 8 training_new.py --preset modernbert-large --train-epochs 5 --per-device-train-batch-size 4 --gradient-accumulation-steps 1 --max-length 512 --early-stop-patience 0 --save-total-limit 3 --overwrite-run-dir
+```
+
+**Note:** Pretrained checkpoints are already included in `runs/*/best/` directories.
+
 ### Step 2: Fine-tuning Experiments
-```bash
-# Run all 30 experiments automatically (~1 hour)
+
+Run all 30 experiments automatically (~3 hours on 8× B200 GPUs):
+# Make script executable
 chmod +x run_experiments.sh
+
+# Run all experiments (3 models × 30 runs = 90 total experiments)
 ./run_experiments.sh
 ```
 
+This will:
+- Fine-tune RoBERTa-base 30 times (seeds 42-71)
+- Fine-tune DeBERTa-v3-large 30 times (seeds 42-71)
+- Fine-tune ModernBERT-large 30 times (seeds 42-71)
+- Save results to `results_30runs/` directory
+
 ### Step 3: Analysis
-```bash
-# Generate statistics and visualizations
+
+Generate statistics and visualizations:
 python analyze.py
-```
+
+This creates:
+- `summary_statistics.csv` - Mean, std, min, max F1 scores
+- `statistical_tests.csv` - p-values and t-test results
+- `f1_boxplot.png` - Box plot comparison
+- `f1_barplot.png` - Bar plot with error bars
+- `f1_violin.png` - Violin plot
+- `training_time.png` - Training time comparison
+- `loss_comparison.png` - Train/val loss comparison
+- `radar_plot.png` - Overall model comparison
+- `radar_plot_per_class.png` - Per-class F1 comparison
+
+### Step 4: View Results
+
+# View summary statistics
+cat results_30runs/summary_statistics.csv
+
+# View statistical tests
+cat results_30runs/statistical_tests.csv
+
+# List all visualizations
+ls results_30runs/*.png
 
 
